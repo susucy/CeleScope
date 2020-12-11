@@ -33,10 +33,6 @@ class Multi():
                 4th col: Cell number or match_dir, optional;
             ''',
             required=True)
-        parser.add_argument('--chemistry', choices=__PATTERN_DICT__.keys(), help='chemistry version', default='auto')
-        parser.add_argument('--whitelist', help='cellbarcode list')
-        parser.add_argument('--linker', help='linker')
-        parser.add_argument('--pattern', help='read1 pattern')
         parser.add_argument('--outdir', help='output dir', default="./")
         parser.add_argument(
             '--adapt',
@@ -56,20 +52,40 @@ class Multi():
             help='nextseq_trim',
             default=20)
         parser.add_argument('--overlap', help='minimum overlap length', default=10)
-        parser.add_argument('--lowQual', type=int, help='max phred of base as lowQual', default=0)
-        parser.add_argument(
-            '--lowNum',
-            type=int,
-            help='max number with lowQual allowed',
-            default=2)
-        parser.add_argument(
-            '--rm_files',
-            action='store_true',
-            help='remove redundant fq.gz and bam after running')
+        parser.add_argument('--insert', help="read2 insert length", default=150)
+        parser.add_argument('--rm_files', action='store_true', help='remove redundant fq.gz and bam after running')
         parser.add_argument('--steps_run', help='steps to run', default='all')
         parser.add_argument('--debug', help='debug or not', action='store_true')
         self.parser = parser
         return parser
+
+    def barcode_args(self):
+        parser = self.parser
+        parser.add_argument('--chemistry', choices=__PATTERN_DICT__.keys(), help='chemistry version', default='auto')
+        parser.add_argument('--pattern', help='')
+        parser.add_argument('--whitelist', help='')
+        parser.add_argument('--linker', help='')
+        parser.add_argument('--lowQual', type=int, help='max phred of base as lowQual, default=0', default=0)
+        parser.add_argument('--lowNum', type=int, help='max number with lowQual allowed, default=2', default=2)
+        parser.add_argument('--nopolyT', action='store_true', help='output nopolyT fq')
+        parser.add_argument('--noLinker', action='store_true', help='output noLinker fq')
+        parser.add_argument('--probe_file', help="probe fasta file")
+        parser.add_argument('--allowNoPolyT', help="allow reads without polyT", action='store_true')
+        parser.add_argument('--allowNoLinker', help="allow reads without correct linker", action='store_true')
+        self.parser = parser
+
+    def read_barcode_args(self):
+        self.chemistry = self.args.chemistry
+        self.pattern = self.args.pattern
+        self.whitelist = self.args.whitelist
+        self.linker = self.args.linker
+        self.lowQual = self.args.lowQual
+        self.lowNum = self.args.lowNum
+        self.nopolyT_str = Multi.arg_str(self.args.nopolyT, 'nopolyT')
+        self.noLinker_str = Multi.arg_str(self.args.noLinker, 'noLinker')
+        self.probe_file = self.args.probe_file
+        self.allowNoPolyT_str = Multi.arg_str(self.args.allowNoPolyT, 'allowNoPolyT')
+        self.allowNoLinker_str = Multi.arg_str(self.args.allowNoLinker, 'allowNoLinker')
 
     def STAR_args(self):
         self.parser.add_argument('--starMem', help='starMem', default=30)
@@ -82,27 +98,28 @@ class Multi():
         self.parser.add_argument('--out_unmapped', help='out_unmapped', action='store_true')
         self.parser.add_argument('--outFilterMatchNmin', help='STAR outFilterMatchNmin', default=0)
 
+    def count_args(self):
+        self.parser.add_argument('--rescue', help='rescue low UMI cells', action='store_true')
+
     def analysis_args(self):
         self.parser.add_argument('--save_rds', action='store_true', help='write rds to disk')
         self.parser.add_argument('--type_marker_tsv', help='cell type marker tsv')
 
     def custome_args(self):
         self.STAR_args()
+        self.count_args()
         self.analysis_args()
 
     def parse_args(self):
         self.multi_opts()
+        self.barcode_args()
         self.custome_args()
         self.args = self.parser.parse_args()
         # read args
         self.outdir = self.args.outdir
-        self.chemistry = self.args.chemistry
-        self.pattern = self.args.pattern
-        self.whitelist = self.args.whitelist
-        self.linker = self.args.linker
-        self.lowQual = self.args.lowQual
-        self.lowNum = self.args.lowNum
         self.overlap = self.args.overlap
+        self.minimum_length = self.args.minimum_length
+        self.insert = self.args.insert
         self.mod = self.args.mod
         self.rm_files = self.args.rm_files
         self.steps_run = self.args.steps_run
@@ -110,6 +127,8 @@ class Multi():
             self.debug_str = '--debug'
         else:
             self.debug_str = Multi.arg_str(self.args.debug, 'debug')
+        self.read_barcode_args()
+        self.read_custome_args()
 
     @staticmethod
     def arg_str(arg, arg_name):
@@ -127,6 +146,9 @@ class Multi():
         self.gtf_type = self.args.gtf_type
         self.out_unmapped = Multi.arg_str(self.args.out_unmapped, 'out_unmapped')
         self.outFilterMatchNmin = self.args.outFilterMatchNmin
+
+    def read_count_args(self):
+        self.rescue_str = Multi.arg_str(self.args.rescue, 'rescue')
     
     def read_analysis_args(self):
         self.save_rds = self.args.save_rds
@@ -135,6 +157,7 @@ class Multi():
 
     def read_custome_args(self):
         self.read_STAR_args()
+        self.read_count_args()
         self.read_analysis_args()
 
     def prepare(self):
@@ -221,7 +244,11 @@ job_end
             f'--pattern {self.pattern} --whitelist {self.whitelist} --linker {self.linker} '
             f'--lowQual {self.lowQual} --thread {self.thread} '
             f'--lowNum {self.lowNum} '
-
+            f'{self.allowNoPolyT_str} '
+            f'{self.allowNoLinker_str} '
+            f'{self.noLinker_str} '
+            f'{self.nopolyT_str} '
+            f'--probe_file {self.probe_file} '
         )
         self.process_cmd(cmd, step, sample, m=5, x=1)
 
@@ -238,6 +265,8 @@ job_end
             f'--assay {self.__ASSAY__} '
             f'--fq {fq} '
             f'--overlap {self.overlap} '
+            f'--minimum_length {self.minimum_length} '
+            f'--insert {self.insert} '
         )
         self.process_cmd(cmd, step, sample, m=5, x=1)
 
@@ -290,6 +319,7 @@ job_end
             f'--bam {bam} '
             f'--cells {self.col4_dict[sample]} '
             f'--genomeDir {self.genomeDir} '
+            f'{self.rescue_str} '
         )
         self.process_cmd(cmd, step, sample, m=10, x=1)
 
@@ -341,10 +371,7 @@ job_end
                     f.write(self.shell_dict[sample])
 
     def run(self):
-        self.multi_opts()
-        self.custome_args()
         self.parse_args()
-        self.read_custome_args()
         self.prepare()
         self.run_steps()
         self.end()
